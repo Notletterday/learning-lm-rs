@@ -1,3 +1,5 @@
+use std::ffi::c_short;
+
 use crate::tensor::Tensor;
 
 // get (row) vectors from a 2D table given a list of indices
@@ -71,25 +73,110 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 }
 
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
-    todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
+    let x_shape = x.shape();
+    let y_shape = y.shape();
+    let w_shape = w.shape();
+    assert!(x_shape == y_shape, "x and y must match");
+    assert!(x_shape.len() == 2, "x must be first dimensional");
+    assert!(w_shape.len() == 1, "w must be second dimensional");
+    assert!(
+        x_shape[1] == w_shape[0],
+        "w must have equal number of elements as the second dimensional of x"
+    );
+    let x_data = x.data();
+    let w_data = w.data();
+    let mut y_data = unsafe { y.data_mut() };
+    let n = x_shape[1] as f32;
+    for i in 0..x_shape[0] {
+        let offset = i * x_shape[1];
+        let mut rms = 0.0;
+        for j in 0..x_shape[1] {
+            rms += x_data[offset + j] * x_data[offset + j];
+        }
+        rms = (rms / n).sqrt() + epsilon;
+        for j in 0..x_shape[1] {
+            y_data[offset + j] = x_data[offset + j] / rms * w_data[j];
+        }
+    }
 }
 
 // y = sigmoid(x) * x * y
 // hint: this is an element-wise operation
+// y = sigmoid(x) * x * y
+// hint: this is an element-wise operation
 pub fn silu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
-    // let len = y.size();
-    // assert!(len == x.size());
+    let len = y.size();
+    assert!(len == x.size());
 
-    // let _y = unsafe { y.data_mut() };
-    // let _x = x.data();
-
-    todo!("实现 silu，这里给了一些前期准备工作的提示，你可以参考")
+    let _y = unsafe { y.data_mut() };
+    let _x = x.data();
+    for i in 0..len {
+        let sigmoid_x = 1.0 / (1.0 + (-_x[i]).exp());
+        _y[i] = sigmoid_x * _x[i] * _y[i];
+    }
 }
-
+//新加的silu
+pub fn silu_two_dimension(z: &mut Tensor<f32>, y: &Tensor<f32>, x: &Tensor<f32>) {
+    let y_shape = y.shape();
+    let x_shape = x.shape();
+    let z_shape = z.shape();
+    assert!(y_shape.len() == 2);
+    assert!(x_shape.len() == 2);
+    assert!(z_shape[0] == x_shape[0] && z_shape[0] == y_shape[0]);
+    assert!(z_shape[1] == x_shape[1] && z_shape[1] == y_shape[1]);
+    assert!(z_shape.len() == 2);
+    let _y = y.data();
+    let _x = x.data();
+    let _z = unsafe { z.data_mut() };
+    for i in 0..x_shape[0] {
+        for j in 0..x_shape[1] {
+            let t = i * x_shape[1] + j;
+            _z[t] = _y[t] / (1.0 + (-_y[t]).exp()) * _x[t];
+        }
+    }
+}
+//新加的add
+pub fn tensor_add(y: &mut Tensor<f32>, x: &Tensor<f32>) {
+    let x_shape = x.shape();
+    let y_shape = y.shape();
+    assert!(x_shape.len() == y_shape.len());
+    assert!(x_shape[0] == y_shape[0] && x_shape[1] == y_shape[1]);
+    let _x = x.data();
+    let _y = unsafe { y.data_mut() };
+    for i in 0..x_shape[0] {
+        for j in 0..x_shape[1] {
+            let t = i * x_shape[1] + j;
+            _y[t] += _x[t];
+        }
+    }
+}
 // C = beta * C + alpha * A @ B^T
 // hint: You don't need to do an explicit transpose of B
 pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
-    todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
+    let a_shape = a.shape();
+    let b_shape = b.shape();
+    let c_shape = c.shape();
+    assert!(a_shape.len() == b_shape.len());
+    assert!(a_shape.len() == b_shape.len());
+    assert!(a_shape[1] == b_shape[1]);
+    assert!(a_shape[0] == c_shape[0]);
+    assert!(b_shape[0] == c_shape[1]);
+    let c_shape1 = c_shape[1];
+    let a_data = a.data();
+    let b_data = b.data();
+    let c_data = unsafe { c.data_mut() };
+    for elem in c_data.iter_mut() {
+        *elem *= beta;
+    }
+    for i in 0..a_shape[0] {
+        for j in 0..b_shape[0] {
+            let mut sum = 0.0;
+            for k in 0..a_shape[1] {
+                sum += a_data[i * a_shape[1] + k] * b_data[j * b_shape[1] + k];
+            }
+            c_data[i * c_shape1 + j] += alpha * sum;
+        }
+    }
 }
 
 // Dot product of two tensors (treated as vectors)
